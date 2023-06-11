@@ -1,0 +1,77 @@
+menu "Component drv_socket Configuration"
+
+    choice SOCKET_DEFAULT_IF
+        prompt "Select Default Interface"
+        default ESP_IF_WIFI_STA
+        help
+            Select form available or implement a new one.
+
+        config ESP_IF_WIFI_STA
+            bool "Wifi Station"
+        config ESP_IF_WIFI_AP
+            bool "Wifi Soft-AP"
+        config ESP_IF_ETH
+            bool "Ethernet Phy"
+        config ESP_IF_NONE
+            bool "Not Available"
+    endchoice
+
+    choice SOCKET_BACKUP_IF
+        prompt "Select BACKUP Interface"
+        default BKP_IF_ETH
+        help
+            Select form available or implement a new one.
+
+        config BKP_IF_WIFI_STA
+            bool "Wifi Station"
+        config BKP_IF_WIFI_AP
+            bool "Wifi Soft-AP"
+        config BKP_IF_ETH
+            bool "Ethernet Phy"
+        config BKP_IF_NONE
+            bool "Not Available"
+        endchoice
+
+    config SOCKET_DEFAULT_IPV4
+        bool "IPV4"
+        default y
+
+    config  SOCKET_DEFAULT_IPV6
+        bool "IPV6"
+        default n if SOCKET_DEFAULT_IPV4
+        default y if !SOCKET_DEFAULT_IPV4
+        select EXAMPLE_CONNECT_IPV6
+
+    config SOCKET_DEFAULT_PORT
+        int "Port"
+        range 0 65535
+        default 3333
+        help
+            Local port the example server will listen on.
+
+    config SOCKET_DEFAULT_KEEPALIVE_IDLE
+        int "TCP keep-alive idle time(s)"
+        default 5
+        help
+            Keep-alive idle time. In idle time without receiving any data from peer, will send keep-alive probe packet
+
+    config SOCKET_DEFAULT_KEEPALIVE_INTERVAL
+        int "TCP keep-alive interval time(s)"
+        default 5
+        help
+            Keep-alive probe packet interval time.
+
+    config SOCKET_DEFAULT_KEEPALIVE_COUNT
+        int "TCP keep-alive packet retry send counts"
+        default 3
+        help
+            Keep-alive probe packet retry count.
+
+    config SOCKET_SERVER_MAX_CLIENTS
+        int "Maximum number of clients for a server socket"
+        range 1 128
+        default 4
+        help
+            Local port the example server will listen on.
+
+endmenu
