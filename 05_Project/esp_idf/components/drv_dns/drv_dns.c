@@ -54,7 +54,7 @@
  **************************************************************************** */
 bool bInitializedDNS = false;
 
-SemaphoreHandle_t drv_socket_flag_dns_busy = NULL;
+SemaphoreHandle_t flag_dns_busy = NULL;
 
 ip_addr_t ip_addr_found;
 
@@ -66,7 +66,7 @@ ip_addr_t ip_addr_found;
  * Functions
  **************************************************************************** */
 
-void drv_socket_dns_found_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+void dns_found_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     bool *pbFound = (bool*)callback_arg;
     if (ipaddr == NULL)
@@ -91,7 +91,7 @@ bool drv_dns_resolve(char* cName, char* cResolveIP, size_t nResolveIPSize, bool*
 
     bool bURLResolved;
 
-    xSemaphoreTake(drv_socket_flag_dns_busy, portMAX_DELAY);
+    xSemaphoreTake(flag_dns_busy, portMAX_DELAY);
     printf("Get IP for URL: %s\n", cName );
     
     if (bInitializedDNS == false)
@@ -111,7 +111,7 @@ bool drv_dns_resolve(char* cName, char* cResolveIP, size_t nResolveIPSize, bool*
         #endif
     }
     bURLResolved = false;
-    err_t resultDNS = dns_gethostbyname(cName, &ip_addr_resolved, drv_socket_dns_found_cb, &bURLResolved);
+    err_t resultDNS = dns_gethostbyname(cName, &ip_addr_resolved, dns_found_cb, &bURLResolved);
 
     if (resultDNS == ERR_OK)
     {
@@ -140,13 +140,13 @@ bool drv_dns_resolve(char* cName, char* cResolveIP, size_t nResolveIPSize, bool*
             ESP_LOGI(TAG, "Resolved (just now for %d ms) URL %s to ip address: %s", delay_ms, cName, cResolveIP);
         }
     }
-    xSemaphoreGive(drv_socket_flag_dns_busy);
+    xSemaphoreGive(flag_dns_busy);
 
     return bURLResolved;
 }
 
 void drv_dns_init(void)
 {
-    drv_socket_flag_dns_busy = xSemaphoreCreateBinary();
-    xSemaphoreGive(drv_socket_flag_dns_busy);
+    flag_dns_busy = xSemaphoreCreateBinary();
+    xSemaphoreGive(flag_dns_busy);
 }
