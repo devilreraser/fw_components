@@ -30,7 +30,7 @@
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
-#include "lwip/dns.h"
+//#include "lwip/dns.h"
 
 #include "esp_netif.h"
 #include "esp_interface.h"
@@ -41,6 +41,7 @@
 #include "drv_eth_if.h"
 #include "drv_wifi_if.h"
 #include "drv_version_if.h"
+#include "drv_dns_if.h"
 //#include "drv_console_if.h"
 
 /* *****************************************************************************
@@ -78,12 +79,6 @@
 /* *****************************************************************************
  * Variables Definitions
  **************************************************************************** */
-bool bInitializedDNS = false;
-
-SemaphoreHandle_t drv_socket_flag_dns_busy = NULL;
-
-ip_addr_t ip_addr_found;
-
 drv_socket_t * pSocketList[DRV_SOCKET_COUNT_MAX] = {NULL};
 int nSocketListCount = 0;
 int nSocketCountTotal = 0;
@@ -102,50 +97,6 @@ void socket_on_connect(drv_socket_t* pSocket, int nConnectionIndex);
 /* *****************************************************************************
  * Functions
  **************************************************************************** */
-void drv_socket_dns_is_initialized_set(bool bInput)
-{
-    bInitializedDNS = bInput;
-}
-
-bool drv_socket_dns_is_initialized_get(void)
-{
-    return bInitializedDNS;
-}
-
-ip_addr_t* drv_socket_dns_found_addr(void)
-{
-    return &ip_addr_found;
-}
-
-void drv_socket_dns_found_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
-{
-    bool *pbFound = (bool*)callback_arg;
-    if (ipaddr == NULL)
-    {
-        ESP_LOGE(TAG, "DNS failed to resolve URL %s to a valid IP Address", name);
-        if (pbFound != NULL) *pbFound = false;
-    }
-    else
-    {
-        memcpy(&ip_addr_found, ipaddr, sizeof(ip_addr_t));
-        //ip_addr_found.u_addr = ipaddr->u_addr;
-        char cTempIP[16] = {0};
-        inet_ntoa_r(ip_addr_found, cTempIP, sizeof(cTempIP));
-        ESP_LOGI(TAG, "DNS resolve URL %s to IP Address: %s", name, cTempIP);
-        if (pbFound != NULL) *pbFound = true;
-    }
-}
-
-void drv_socket_take_dns(void)
-{
-    xSemaphoreTake(drv_socket_flag_dns_busy, portMAX_DELAY);
-}
-
-void drv_socket_give_dns(void)
-{
-    xSemaphoreGive(drv_socket_flag_dns_busy);
-}
-
 void drv_socket_list(void)
 {
     ESP_LOGI(TAG, "Sockets in list %d. Sockets Total %d.", nSocketListCount, nSocketCountTotal);
@@ -917,71 +868,16 @@ uint32_t drv_socket_caller_id;
 char* socket_get_host_ip_address(drv_socket_t* pSocket)
 {
     char* pLastUsedHostIP = NULL;
-
-    ip_addr_t ip_addr_resolved;
     bool bURLResolved;
-    char cResolveIP[16] = {0};
 
     /* Try Resolve URL */
     bURLResolved = false;
     if ((pSocket->cURL != NULL) && (strlen(pSocket->cURL) > 0))
     {
-        drv_socket_take_dns();
         ESP_LOGI(TAG, "Socket %s Start resolve URL %s", pSocket->cName, pSocket->cURL);
-        #if 0
-        if (drv_console_is_needed_finish_line_caller_check(&drv_socket_caller_id))
-        {
-            printf("\r\n");
-        }
-        printf("Get IP for URL: %s\n", pSocket->cURL );
-        #endif
-        
-        if (bInitializedDNS == false)
-        {
-            bInitializedDNS = true;
-            dns_init();
-            clear_dns_cache();
-        }
-        else
-        {
-            clear_dns_cache();
-            //dns_init();
-        }
-        bURLResolved = false;
-        err_t resultDNS = dns_gethostbyname(pSocket->cURL, &ip_addr_resolved, drv_socket_dns_found_cb, &bURLResolved);
 
-        if (resultDNS == ERR_OK)
+        if (drv_dns_resolve(pSocket->cURL, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved), &pSocket->bActiveTask))
         {
-            /* use ip_addr_resolved from cache */
-            
-            inet_ntoa_r(ip_addr_resolved, cResolveIP, sizeof(cResolveIP));
-            ESP_LOGI(TAG, "Socket %s resolved from cache URL %s to ip address: %s", pSocket->cName, pSocket->cURL, cResolveIP);
-
-            //memcpy(pSocket->cHostIP, cResolveIP, sizeof(pSocket->cHostIP));
-            bURLResolved = true;
-        }
-        else if (resultDNS == ERR_INPROGRESS)
-        {
-            int delay_ms = 0;
-            do
-            {
-                vTaskDelay(pdMS_TO_TICKS(100));
-                delay_ms += 100;
-            } while ((bURLResolved == false) && pSocket->bActiveTask && (delay_ms < 60000));
-
-            if (bURLResolved)
-            {
-                char cResolveIP[16] = {0};
-                memcpy(&ip_addr_resolved, &ip_addr_found, sizeof(ip_addr_t));
-                inet_ntoa_r(ip_addr_resolved, cResolveIP, sizeof(cResolveIP));
-                ESP_LOGI(TAG, "Socket %s resolved (just now for %d ms) URL %s to ip address: %s", pSocket->cName, delay_ms, pSocket->cURL, cResolveIP);
-            }
-        }
-
-
-        if (bURLResolved)
-        {
-            inet_ntoa_r(ip_addr_resolved, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved));
             ESP_LOGI(TAG, "Socket %s resolved URL %s to ip address: %s", pSocket->cName, pSocket->cURL, pSocket->cHostIPResolved);
         }
         else
@@ -990,7 +886,6 @@ char* socket_get_host_ip_address(drv_socket_t* pSocket)
         }
 
         ESP_LOGI(TAG, "Socket %s Final resolve URL %s", pSocket->cName, pSocket->cURL); 
-        drv_socket_give_dns();
     }
 
     if(bURLResolved)  
@@ -1752,6 +1647,5 @@ esp_err_t drv_socket_task(drv_socket_t* pSocket, int priority)
 
 void drv_socket_init(void)
 {
-    drv_socket_flag_dns_busy = xSemaphoreCreateBinary();
-    xSemaphoreGive(drv_socket_flag_dns_busy);
+
 }

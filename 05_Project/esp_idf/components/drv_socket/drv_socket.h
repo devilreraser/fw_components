@@ -238,12 +238,6 @@ typedef struct
 /* *****************************************************************************
  * Function Prototypes
  **************************************************************************** */
-void drv_socket_dns_is_initialized_set(bool bInput);
-bool drv_socket_dns_is_initialized_get(void);
-ip_addr_t* drv_socket_dns_found_addr(void);
-void drv_socket_dns_found_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
-void drv_socket_take_dns(void);
-void drv_socket_give_dns(void);
 void drv_socket_list(void);
 int drv_socket_get_position(const char* name);
 drv_socket_t* drv_socket_get_handle(const char* name);

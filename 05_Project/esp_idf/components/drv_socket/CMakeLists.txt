@@ -9,6 +9,7 @@ idf_component_register(SRCS "drv_socket.c" "cmd_socket.c"
                                 "drv_version"
                                 "drv_eth" 
                                 "drv_wifi" 
+                                "drv_dns"
                                       )
                  
 
