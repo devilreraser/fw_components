@@ -876,7 +876,8 @@ char* socket_get_host_ip_address(drv_socket_t* pSocket)
     {
         ESP_LOGI(TAG, "Socket %s Start resolve URL %s", pSocket->cName, pSocket->cURL);
 
-        if (drv_dns_resolve(pSocket->cURL, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved), &pSocket->bActiveTask))
+        bURLResolved = drv_dns_resolve(pSocket->cURL, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved), &pSocket->bActiveTask);
+        if (bURLResolved)
         {
             ESP_LOGI(TAG, "Socket %s resolved URL %s to ip address: %s", pSocket->cName, pSocket->cURL, pSocket->cHostIPResolved);
         }
