@@ -997,10 +997,10 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
     struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
     socklen_t addr_len = sizeof(source_addr);
 
-    // Set a timeout of 100 ms
+    // Set a timeout of 0 ms
     struct timeval timeout;
     timeout.tv_sec = 0;
-    timeout.tv_usec = 100000;
+    timeout.tv_usec = 0;
 
     // Set the socket to non-blocking mode
     fcntl(pSocket->nSocketIndexServer, F_SETFL, O_NONBLOCK);
@@ -1020,7 +1020,10 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
     } 
     else if (ready == 0) 
     {
-        ESP_LOGD(TAG, "Socket %s %d Timeout waiting for client to connect", pSocket->cName, pSocket->nSocketIndexServer);
+        if ((pSocket->nTaskLoopCounter % ((pdMS_TO_TICKS(30000)) / nTaskRestTimeTicks)) == 0)
+        {
+            ESP_LOGW(TAG, "Socket %s %d Timeout waiting for client to connect", pSocket->cName, pSocket->nSocketIndexServer);
+        }
         //socket_disconnect(pSocket);
         //close(pSocket->nSocketIndexServer);
         //pSocket->nSocketIndexServer = -1;
