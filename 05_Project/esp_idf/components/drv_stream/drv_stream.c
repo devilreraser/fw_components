@@ -30,7 +30,7 @@
 /* *****************************************************************************
  * Constants and Macros Definitions
  **************************************************************************** */
-#define DRV_STREAM_DEFAULT_LENGTH_MAX   4096    /* if 0 - no limit to test heap overflow */
+#define DRV_STREAM_DEFAULT_LENGTH_MAX   2048    /* if 0 - no limit to test heap overflow */
 #define DRV_STREAM_REMOVE_EXTRA_ON_SKIP 1024    /* count bytes additional to remove if skip data needed */
 
 #define DRV_STREAM_COUNT_MAX            20

@@ -224,6 +224,7 @@ typedef struct
     drv_socket_on_recvfrom_t onReceiveFrom;
     drv_socket_on_sendto_t onSendTo;
     drv_socket_runtime_t* pRuntime;
+    struct sockaddr_storage nSocketIndexPrimerIP[DRV_SOCKET_MAX_CLIENTS];
 
 } drv_socket_t;
 

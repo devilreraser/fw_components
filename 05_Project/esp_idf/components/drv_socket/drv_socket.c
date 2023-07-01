@@ -155,9 +155,20 @@ void socket_connection_remove_from_list(drv_socket_t* pSocket, int nConnectionIn
         pSocket->nSocketIndexPrimer[nIndex - 1] = pSocket->nSocketIndexPrimer[nIndex];
     }
     pSocket->nSocketConnectionsCount--;
+    if (pSocket->nSocketConnectionsCount == 0)
+    {
+        if (pSocket->bServerType)
+        {
+            /* closed server socket and 0 client connections available - do nothing (periodic client connect will be used) */
+        }
+        else
+        {
+            pSocket->bConnected = false;    /* disconnect the client socket */
+        }
+    }
 }
 
-void socket_connection_add_to_list(drv_socket_t* pSocket, int nSocketIndex)
+bool socket_connection_add_to_list(drv_socket_t* pSocket, int nSocketIndex)
 {
     if (pSocket->nSocketConnectionsCount < DRV_SOCKET_MAX_CLIENTS)
     {
@@ -165,10 +176,12 @@ void socket_connection_add_to_list(drv_socket_t* pSocket, int nSocketIndex)
         socket_set_options(pSocket, pSocket->nSocketConnectionsCount);
         socket_on_connect(pSocket, pSocket->nSocketConnectionsCount);
         pSocket->nSocketConnectionsCount++;
+        return true;
     }
     else
     {
         ESP_LOGE(TAG, "Connecting Failure (Max Clients Reached) client to socket %s %d", pSocket->cName, nSocketIndex);
+        return false;
     }
 }
 
@@ -249,8 +262,6 @@ void socket_disconnect(drv_socket_t* pSocket)
             pSocket->nSocketIndexServer = -1;
         }
     }
-
-
     pSocket->bConnected = false;
 }
 
@@ -285,9 +296,7 @@ void socket_if_get_mac(drv_socket_t* pSocket, uint8_t mac_addr[6])
         {
             ESP_LOGE(pSocket->cName, "Adapter Interface: %s", "Unimplemented");    //to do fix for default if needed
         } 
-
     }
-
 }
 
 bool send_identification_answer(drv_socket_t* pSocket, int nConnectionIndex)
@@ -440,7 +449,7 @@ void socket_recv(drv_socket_t* pSocket, int nConnectionIndex)
         {
             int nLengthPeek = nLength;
 
-            ESP_LOGI(TAG, "01 %d bytes Peek on %s socket", nLengthPeek, pSocket->cName);
+            ESP_LOGD(TAG, "01 %d bytes Peek on %s socket", nLengthPeek, pSocket->cName);
 
             au8Temp = malloc(nLength);
 
@@ -483,7 +492,7 @@ void socket_recv(drv_socket_t* pSocket, int nConnectionIndex)
                 {
                     if (nLength == nLengthPeek)
                     {
-                        ESP_LOG_BUFFER_CHAR(pSocket->cName, au8Temp, nLength);
+                        ESP_LOG_BUFFER_CHAR_LEVEL(pSocket->cName, au8Temp, nLength, ESP_LOG_DEBUG);
 
                         if (pSocket->bIndentifyForced)
                         {
@@ -556,7 +565,7 @@ void socket_recv(drv_socket_t* pSocket, int nConnectionIndex)
                         else
                         {
                             
-                            ESP_LOGW(TAG, "%s socket %s[%d] %d: push |%d/%d->%d|bytes", sockTypeString, pSocket->cName, nConnectionIndex, nSocketClient, nLengthPush, nLength, nFillStreamTCP);
+                            ESP_LOGI(TAG, "%s socket %s[%d] %d: push |%d/%d->%d|bytes", sockTypeString, pSocket->cName, nConnectionIndex, nSocketClient, nLengthPush, nLength, nFillStreamTCP);
                             //ESP_LOG_BUFFER_CHAR(TAG "03", au8Temp, nLength);
                         }
                     }
@@ -876,7 +885,8 @@ char* socket_get_host_ip_address(drv_socket_t* pSocket)
     {
         ESP_LOGI(TAG, "Socket %s Start resolve URL %s", pSocket->cName, pSocket->cURL);
 
-        if (drv_dns_resolve(pSocket->cURL, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved), &pSocket->bActiveTask))
+        bURLResolved = drv_dns_resolve(pSocket->cURL, pSocket->cHostIPResolved, sizeof(pSocket->cHostIPResolved), &pSocket->bActiveTask);
+        if (bURLResolved)
         {
             ESP_LOGI(TAG, "Socket %s resolved URL %s to ip address: %s", pSocket->cName, pSocket->cURL, pSocket->cHostIPResolved);
         }
@@ -905,8 +915,8 @@ void socket_prepare_host_ip_info(drv_socket_t* pSocket)
     char cRecvFromIP[16] = "255.255.255.255";
     char* pRecvFromIP = cRecvFromIP;
 
-    char cSendToIP[16] = "192.168.3.118";
-    //char cSendToIP[16] = "255.255.255.255";
+    //char cSendToIP[16] = "192.168.3.118";
+    char cSendToIP[16] = "255.255.255.255";
     char* pSendToIP = cSendToIP;
 
 
@@ -996,10 +1006,10 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
     struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
     socklen_t addr_len = sizeof(source_addr);
 
-    // Set a timeout of 100 ms
+    // Set a timeout of 0 ms
     struct timeval timeout;
     timeout.tv_sec = 0;
-    timeout.tv_usec = 100000;
+    timeout.tv_usec = 0;
 
     // Set the socket to non-blocking mode
     fcntl(pSocket->nSocketIndexServer, F_SETFL, O_NONBLOCK);
@@ -1012,14 +1022,17 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
 
     if (ready < 0) 
     {
-        ESP_LOGE(TAG, "Error in select() function: errno %d (%s)", errno, strerror(errno));
+        ESP_LOGE(TAG, "Socket %s %d Error in select() function: errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, errno, strerror(errno));
         socket_disconnect(pSocket);
         //close(pSocket->nSocketIndexServer);
         //pSocket->nSocketIndexServer = -1;
     } 
     else if (ready == 0) 
     {
-        ESP_LOGD(TAG, "Timeout waiting for new client to connect");
+        if ((pSocket->nTaskLoopCounter % ((pdMS_TO_TICKS(30000)) / nTaskRestTimeTicks)) == 0)
+        {
+            ESP_LOGW(TAG, "Socket %s %d Timeout waiting for client to connect", pSocket->cName, pSocket->nSocketIndexServer);
+        }
         //socket_disconnect(pSocket);
         //close(pSocket->nSocketIndexServer);
         //pSocket->nSocketIndexServer = -1;
@@ -1030,7 +1043,7 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
         if (nNewSocketClientIndex < 0) 
         {
             err = errno;
-            ESP_LOGE(TAG, "Unable to accept connection %d to socket %s %d: errno %d (%s)", nNewSocketClientIndex, pSocket->cName, pSocket->nSocketIndexServer, err, strerror(err));
+            ESP_LOGE(TAG, "Socket %s %d Unable to accept connection %d: errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, nNewSocketClientIndex, err, strerror(err));
             //socket_disconnect(pSocket); //To Do check not to disconnect socket if no more connections available
             //close(pSocket->nSocketIndexServer);
             //pSocket->nSocketIndexServer = -1;
@@ -1052,7 +1065,11 @@ void socket_connect_server_periodic(drv_socket_t* pSocket)
             }
             ESP_LOGI(TAG, "Socket %s %d accepted ip address: %s", pSocket->cName, pSocket->nSocketIndexServer, addr_str);
 
-            socket_connection_add_to_list(pSocket, nNewSocketClientIndex);
+            if (socket_connection_add_to_list(pSocket, nNewSocketClientIndex))
+            {
+                pSocket->nSocketIndexPrimerIP[pSocket->nSocketConnectionsCount-1] = source_addr;
+            }
+            
             //pSocket->nSocketIndexPrimer = nNewSocketClientIndex;
         }
     }
@@ -1085,7 +1102,7 @@ void socket_connect_server(drv_socket_t* pSocket)
         ESP_LOGE(TAG, LOG_COLOR(LOG_COLOR_CYAN)"Socket %s %d setsockopt  SO_REUSEADDR=%d retv = %d. errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, opt, ret_so, err, strerror(errno));
     }
 
-
+    //vTaskDelay(pdMS_TO_TICKS(100));
 
 
 
@@ -1094,6 +1111,16 @@ void socket_connect_server(drv_socket_t* pSocket)
     {
         err = errno;
         ESP_LOGE(TAG, "Socket %s %d unable to bind: errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, err, strerror(err));
+
+        struct sockaddr_in *test_addr_ip4 = (struct sockaddr_in *)&pSocket->pRuntime->adapterif_addr;
+        //dest_addr_ip4->sin_addr.s_addr = pSocket->pRuntime->adapter_interface_ip_address;
+
+        in_addr_t interfaceAddress = test_addr_ip4->sin_addr.s_addr;
+        const ip4_addr_t* pInterfaceAddress = (const ip4_addr_t*)&interfaceAddress;
+        char cAdapterInterfaceIP[16];
+        char *adapter_interface_ip = ip4addr_ntoa_r(pInterfaceAddress, cAdapterInterfaceIP, sizeof(cAdapterInterfaceIP));
+        ESP_LOGW(TAG, "Socket %s %d adapterif addr:%s port:%d family:%d", pSocket->cName, pSocket->nSocketIndexServer, adapter_interface_ip, htons(test_addr_ip4->sin_port), test_addr_ip4->sin_family);
+        
         socket_disconnect(pSocket);
         //close(pSocket->nSocketIndexServer);
         //pSocket->nSocketIndexServer = -1;
@@ -1134,14 +1161,14 @@ void socket_connect_server(drv_socket_t* pSocket)
 
             if (ready < 0) 
             {
-                ESP_LOGE(TAG, "Error in select() function: errno %d (%s)", errno, strerror(errno));
+                ESP_LOGE(TAG, "Socket %s %d Error in select() function: errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, errno, strerror(errno));
                 socket_disconnect(pSocket);
                 //close(pSocket->nSocketIndexServer);
                 //pSocket->nSocketIndexServer = -1;
             } 
             else if (ready == 0) 
             {
-                ESP_LOGE(TAG, "Timeout waiting for client to connect");
+                ESP_LOGW(TAG, "Socket %s %d Timeout waiting for client to connect", pSocket->cName, pSocket->nSocketIndexServer);
                 //socket_disconnect(pSocket);
                 //close(pSocket->nSocketIndexServer);
                 //pSocket->nSocketIndexServer = -1;
@@ -1152,7 +1179,7 @@ void socket_connect_server(drv_socket_t* pSocket)
                 if (nNewSocketClientIndex < 0) 
                 {
                     err = errno;
-                    ESP_LOGE(TAG, "Unable to accept connection %d to socket %s %d: errno %d (%s)", nNewSocketClientIndex, pSocket->cName, pSocket->nSocketIndexServer, err, strerror(err));
+                    ESP_LOGE(TAG, "Socket %s %d Unable to accept connection %d: errno %d (%s)", pSocket->cName, pSocket->nSocketIndexServer, nNewSocketClientIndex, err, strerror(err));
                     socket_disconnect(pSocket);
                     //close(pSocket->nSocketIndexServer);
                     //pSocket->nSocketIndexServer = -1;
@@ -1174,8 +1201,11 @@ void socket_connect_server(drv_socket_t* pSocket)
                     }
                     ESP_LOGI(TAG, "Socket %s %d accepted ip address: %s", pSocket->cName, pSocket->nSocketIndexServer, addr_str);
 
-                    socket_connection_add_to_list(pSocket, nNewSocketClientIndex);
-                    //pSocket->nSocketIndexPrimer = nNewSocketClientIndex;
+                    if (socket_connection_add_to_list(pSocket, nNewSocketClientIndex))
+                    {
+                        pSocket->nSocketIndexPrimerIP[pSocket->nSocketConnectionsCount-1] = source_addr;
+                    }
+                     //pSocket->nSocketIndexPrimer = nNewSocketClientIndex;
                 }
             }
             // Set the socket back to blocking mode
@@ -1546,6 +1576,7 @@ static void socket_task(void* parameters)
                 pSocket->bConnectDeny = pSocket->bConnectDenyAP;
             }
         }
+
         if (pSocket->bConnectDeny)
         {
             pSocket->bDisconnectRequest = true;
@@ -1563,50 +1594,81 @@ static void socket_task(void* parameters)
                 socket_send(pSocket, nIndex);
             }
             /* check for incoming connections */
-            socket_connect_server_periodic(pSocket);
+            if (pSocket->bServerType)
+            {
+                socket_connect_server_periodic(pSocket);
+            }
+            
             
 
             //ESP_LOGI(TAG, "socket %s %d: Loop Connected", pSocket->cName, nSocketClient);
         }
         else
-        /* need to create socket (server for server or primer for client) */
-        if (((pSocket->bServerType == true) && (pSocket->nSocketIndexServer < 0)) 
-        // || ((pSocket->bServerType == false) && (pSocket->nSocketIndexPrimer[0] < 0)))
-        || ((pSocket->bServerType == false) && (pSocket->nSocketConnectionsCount == 0)))
         {
-            /* Try Create Socket */
-            socket_strt(pSocket);
-            pSocket->bConnected = false;
-        }
-        else
-        /* socket is created but not connected */
-        if (((pSocket->bServerType == true) && (pSocket->nSocketIndexServer >= 0)) 
-        // || ((pSocket->bServerType == false) && (pSocket->nSocketIndexPrimer[0] >= 0)))
-        || ((pSocket->bServerType == false) && (pSocket->nSocketConnectionsCount > 0)))
-        {
-            /* Try Connect Socket */
-            socket_prepare_ip_info(pSocket);
+            /* start connection from beginning */
+            //socket_disconnect(pSocket);
 
-            if (pSocket->bServerType)
+            /* need to create socket (server for server or primer for client) */
+            if (((pSocket->bServerType == true) && (pSocket->nSocketIndexServer < 0)) 
+            // || ((pSocket->bServerType == false) && (pSocket->nSocketIndexPrimer[0] < 0)))
+            || ((pSocket->bServerType == false) && (pSocket->nSocketConnectionsCount <= 0)))
             {
-                socket_connect_server(pSocket);
-            }
-            else /* Client socket type */
-            {
-                socket_connect_client(pSocket);
-            }
-
-            if (pSocket->nSocketConnectionsCount > 0)
-            //if (pSocket->nSocketIndexPrimer[0] > 0)
-            {
-                
-                pSocket->bConnected = true;
-                pSocket->bDisconnectRequest = false;
+                if (pSocket->bServerType)
+                {
+                    ESP_LOGW(TAG, "socket server %s %d: Try Create Socket", pSocket->cName, pSocket->nSocketIndexServer);
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "socket client %s[0] %d: Try Create Socket", pSocket->cName, pSocket->nSocketIndexPrimer[0]);
+                }
+                /* Try Create Socket */
+                socket_strt(pSocket);
+                //pSocket->bConnected = false; - not needed
             }
             else
+            /* socket is created but not connected */
+            if (((pSocket->bServerType == true) && (pSocket->nSocketIndexServer >= 0)) 
+            // || ((pSocket->bServerType == false) && (pSocket->nSocketIndexPrimer[0] >= 0)))
+            || ((pSocket->bServerType == false) && (pSocket->nSocketConnectionsCount > 0)))
             {
-                pSocket->bConnected = false;
-                vTaskDelay(nReconnectTimeTicks); 
+                if (pSocket->bServerType)
+                {
+                    ESP_LOGW(TAG, "socket server %s %d: Try Connect Socket", pSocket->cName, pSocket->nSocketIndexServer);
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "socket client %s[0] %d: Try Connect Socket", pSocket->cName, pSocket->nSocketIndexPrimer[0]);
+                }
+                /* Try Connect Socket */
+                socket_prepare_ip_info(pSocket);
+
+                if (pSocket->bServerType)
+                {
+                    socket_connect_server(pSocket);
+                }
+                else /* Client socket type */
+                {
+                    socket_connect_client(pSocket);
+                }
+
+                if ((pSocket->bServerType == true) && (pSocket->nSocketIndexServer >= 0)) 
+                {
+                    pSocket->bConnected = true;
+                    pSocket->bDisconnectRequest = false;
+                }
+                else
+                if (pSocket->nSocketConnectionsCount > 0)
+                //if (pSocket->nSocketIndexPrimer[0] > 0)
+                {
+                    
+                    pSocket->bConnected = true;
+                    pSocket->bDisconnectRequest = false;
+                }
+                else
+                {
+                    //pSocket->bConnected = false; - not needed
+                    vTaskDelay(nReconnectTimeTicks); 
+                }
             }
         }
         pSocket->nTaskLoopCounter++;
