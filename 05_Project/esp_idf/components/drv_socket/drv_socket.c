@@ -983,7 +983,7 @@ void socket_strt(drv_socket_t* pSocket)
     }
     else
     {
-        ESP_LOGI(TAG, "Created socket %s %d: AdapterIF: %d Address Family: %d", pSocket->cName, nSocketIndex, pSocket->pRuntime->adapter_if, pSocket->address_family);
+        ESP_LOGW(TAG, "Created socket %s %d: AdapterIF: %d Address Family: %d", pSocket->cName, nSocketIndex, pSocket->pRuntime->adapter_if, pSocket->address_family);
     }
     if (pSocket->bServerType)
     {
